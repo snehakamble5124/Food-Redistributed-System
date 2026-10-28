@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package inventory;
+
+option java_multiple_files = true;
+option java_package = "com.foodwaste.inventory";
+
+// ============================================================
+// InventoryService - gRPC service for food donation inventory
+// Handles availability checks, reservations, and stock management
+// ============================================================
+service InventoryService {
+  // Check if a donation is available for reservation
+  rpc CheckAvailability(CheckRequest) returns (CheckResponse);
+
+  // Reserve a donation for an NGO
+  rpc ReserveDonation(ReserveRequest) returns (ReserveResponse);
+
+  // Get full inventory status
+  rpc GetInventory(InventoryRequest) returns (InventoryResponse);
+
+  // Release a previously reserved donation back to available pool
+  rpc ReleaseDonation(ReleaseRequest) returns (ReleaseResponse);
+}
+
+// ============================================================
+// Message Definitions
+// ============================================================
+
+// CheckAvailability messages
+message CheckRequest {
+  string donation_id = 1;
+}
+
+message CheckResponse {
+  bool available = 1;
+  double quantity = 2;
+  string status = 3;
+  int32 lamport_timestamp = 4;
+}
+
+// ReserveDonation messages
+message ReserveRequest {
+  string donation_id = 1;
+  string ngo_id = 2;
+  int32 lamport_timestamp = 3;
+  map<string, int32> vector_timestamp = 4;
+}
+
+message ReserveResponse {
+  bool success = 1;
+  string message = 2;
+  int32 new_lamport_timestamp = 3;
+  map<string, int32> new_vector_timestamp = 4;
+}
+
+// GetInventory messages
+message InventoryRequest {
+  string food_type_filter = 1;
+  string status_filter = 2;
+}
+
+message InventoryItem {
+  string donation_id = 1;
+  string food_name = 2;
+  string food_type = 3;
+  double quantity = 4;
+  string unit = 5;
+  string status = 6;
+  int32 lamport_timestamp = 7;
+}
+
+message InventoryResponse {
+  repeated InventoryItem items = 1;
+  int32 total_count = 2;
+  double total_quantity = 3;
+}
+
+// ReleaseDonation messages
+message ReleaseRequest {
+  string donation_id = 1;
+  string reason = 2;
+  int32 lamport_timestamp = 3;
+  map<string, int32> vector_timestamp = 4;
+}
+
+message ReleaseResponse {
+  bool success = 1;
+  string message = 2;
+  int32 new_lamport_timestamp = 3;
+  map<string, int32> new_vector_timestamp = 4;
+}

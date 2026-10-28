@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NGO Dashboard - FoodRedist</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">&#127860; <span>FoodRedist</span></div>
+  <nav>
+    <span class="user-info" id="user-display"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+  </nav>
+</header>
+
+<div class="dashboard">
+  <h1 class="dashboard-title">&#127760; NGO Dashboard</h1>
+
+  <div class="card" style="margin-bottom:1rem;">
+    <div class="card-header">&#128205; My Location</div>
+    <form id="location-form" onsubmit="handleUpdateLocation(event)" style="display:flex;gap:0.75rem;align-items:flex-end;flex-wrap:wrap;">
+      <div class="form-group" style="flex:1;min-width:250px;margin:0;">
+        <label>Organization Location (Address)</label>
+        <input type="text" class="form-control" id="ngo-address" required placeholder="e.g. 88 Relief Lane, Manhattan, NY" value="">
+        <small class="text-muted" id="ngo-address-status">Where should donations be dropped off?</small>
+      </div>
+      <button type="submit" class="btn btn-primary" id="loc-btn">Save Location</button>
+    </form>
+  </div>
+
+  <div id="tab-available" class="tab-panel active">
+    <div class="flex-between mb-1">
+      <h3 class="section-heading" style="margin:0;">&#127869; Available Food Donations</h3>
+      <button class="btn btn-sm btn-outline" onclick="loadAvailable()">Refresh</button>
+    </div>
+    <div id="available-list">
+      <div class="empty-state"><span class="spinner"></span> Loading available donations...</div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js?v=2"></script>
+<script>
+  const user = requireRole('ngo');
+  if (!user) throw new Error('Unauthorized');
+  document.getElementById('user-display').textContent = `${user.name || user.email} (NGO)`;
+
+  let ngoLat = (Number.isFinite(Number(user.latitude)) && Number(user.latitude)) ? Number(user.latitude) : 0;
+  let ngoLng = (Number.isFinite(Number(user.longitude)) && Number(user.longitude)) ? Number(user.longitude) : 0;
+
+  if (user.address) {
+    document.getElementById('ngo-address').value = user.address;
+    document.getElementById('ngo-address-status').textContent = 'Current drop-off address: ' + user.address;
+  }
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      ngoLat = pos.coords.latitude;
+      ngoLng = pos.coords.longitude;
+      document.getElementById('ngo-address-status').textContent += ` Coordinates detected (${ngoLat.toFixed(4)}, ${ngoLng.toFixed(4)}).`;
+    }, () => {
+      document.getElementById('ngo-address-status').textContent += ' Coordinates will be kept from your profile (auto-detect unavailable).';
+    });
+  }
+
+  async function handleUpdateLocation(e) {
+    e.preventDefault();
+    const btn = document.getElementById('loc-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Saving...';
+    try {
+      const res = await apiCall('PUT', `${API.USER}/users/${encodeURIComponent(user.id)}`, {
+        address: document.getElementById('ngo-address').value,
+        latitude: ngoLat,
+        longitude: ngoLng,
+      });
+      const stored = getUser();
+      if (stored) {
+        stored.address = res.address;
+        stored.latitude = res.latitude;
+        stored.longitude = res.longitude;
+        setUser(stored);
+      }
+      showAlert('Location saved!', 'success');
+      document.getElementById('ngo-address-status').textContent = 'Current drop-off address: ' + res.address;
+      loadAvailable();
+    } catch (err) {
+      showAlert('Failed to save location: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Save Location';
+    }
+  }
+
+  function switchTab(tab, button) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    (button || document.querySelector(`[onclick*="switchTab('${tab}'"]`))?.classList.add('active');
+    if (tab === 'available') loadAvailable();
+  }
+
+  async function loadAvailable() {
+    try {
+      const data = await apiCall('GET', `${API.DONATION}/donations?status=AVAILABLE`);
+      const donations = (Array.isArray(data) ? data : (data.donations || []))
+        .filter(d => !d.expiry_time || new Date(d.expiry_time) > new Date());
+      const list = document.getElementById('available-list');
+
+      if (donations.length === 0) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128528;</div>No available donations right now.</div>';
+        return;
+      }
+
+      list.innerHTML = donations.map(d => {
+        const dist = (user.latitude && user.longitude && d.latitude && d.longitude)
+          ? getDistance(user.latitude, user.longitude, d.latitude, d.longitude).toFixed(1)
+          : '?';
+        const cd = getExpiryCountdown(d.expiry_time);
+        return `
+          <div class="donation-card">
+            <div class="donation-info">
+              <h4>${escapeHtml(d.food_name)} <span class="badge badge-available" style="font-size:0.7rem;">${escapeHtml(d.food_type)}</span></h4>
+              <p>${d.quantity} ${d.unit || ''} &bull; ${dist} km away &bull; by ${escapeHtml(d.donor_name || d.donor_id || 'Unknown')}</p>
+            </div>
+            <div class="donation-actions">
+              <span class="countdown ${cd.cls}">${cd.text}</span>
+              <button class="btn btn-orange btn-sm" onclick="acceptDonation('${d.donation_id}')">Accept</button>
+            </div>
+          </div>`;
+      }).join('');
+    } catch (err) {
+      showAlert('Failed to load donations: ' + err.message, 'error');
+    }
+  }
+
+  async function acceptDonation(donationId) {
+    try {
+      await apiCall('POST', `${API.ALGORITHM}/reservations`, {
+        donation_id: donationId,
+        ngo_id: user.id,
+        ngo_name: user.name || user.email,
+      });
+      const donation = await apiCall('GET', `${API.DONATION}/donations/${encodeURIComponent(donationId)}`);
+      await apiCall('POST', `${API.DELIVERY}/deliveries`, {
+        donation_id: donationId,
+        ngo_id: user.id,
+        pickup_lat: donation.latitude,
+        pickup_lng: donation.longitude,
+        pickup_address: donation.address || '',
+        drop_lat: Number.isFinite(Number(user.latitude)) ? Number(user.latitude) : donation.latitude,
+        drop_lng: Number.isFinite(Number(user.longitude)) ? Number(user.longitude) : donation.longitude,
+        drop_address: user.address || '',
+      });
+      showAlert('Donation reserved and delivery created!', 'success');
+      loadAvailable();
+    } catch (err) {
+      showAlert('Reservation failed: ' + err.message, 'error');
+    }
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  loadAvailable();
+</script>
+</body>
+</html>

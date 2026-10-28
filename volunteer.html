@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Volunteer Dashboard - FoodRedist</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    #delivery-map { height: 350px; border-radius: var(--radius); }
+    .location-track-box { background: var(--gray-50); border-radius: var(--radius); padding: 1rem; margin-top: 1rem; }
+    .active-delivery-card { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow); padding: 1.5rem; border-left: 4px solid var(--orange); }
+    .delivery-progress { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; flex-wrap: wrap; }
+    .delivery-progress .step { padding: 0.4rem 0.8rem; border-radius: 50px; font-size: 0.8rem; font-weight: 600; background: var(--gray-100); color: var(--gray-500); }
+    .delivery-progress .step.current { background: var(--orange); color: var(--white); }
+    .delivery-progress .step.done { background: var(--green); color: var(--white); }
+    .loc-info { font-size: 0.85rem; color: var(--gray-500); margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">&#127860; <span>FoodRedist</span></div>
+  <nav>
+    <span class="user-info" id="user-display"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+  </nav>
+</header>
+
+<div class="dashboard">
+  <h1 class="dashboard-title">&#128694; Volunteer Dashboard</h1>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('available', this)">Available Deliveries</button>
+    <button class="tab-btn" onclick="switchTab('active', this)">My Active Delivery</button>
+  </div>
+
+  <div id="tab-available" class="tab-panel active">
+    <div class="flex-between mb-1">
+      <h3 class="section-heading" style="margin:0;">&#128666; Pending Deliveries</h3>
+      <button class="btn btn-sm btn-outline" onclick="loadAvailableDeliveries()">Refresh</button>
+    </div>
+    <div id="delivery-list">
+      <div class="empty-state"><span class="spinner"></span> Loading deliveries...</div>
+    </div>
+  </div>
+
+  <div id="tab-active" class="tab-panel">
+    <div id="active-delivery-content">
+      <div class="empty-state"><div class="empty-icon">&#128666;</div>No active delivery. Accept one from the Available tab.</div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js?v=2"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  const user = requireRole('volunteer');
+  if (!user) throw new Error('Unauthorized');
+  document.getElementById('user-display').textContent = `${user.name || user.email} (Volunteer)`;
+
+  let wsConn = null;
+  let map = null;
+  let pickupMarker = null;
+  let dropMarker = null;
+  let routeLine = null;
+
+  function switchTab(tab, button) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    (button || document.querySelector(`[onclick*="switchTab('${tab}'"]`))?.classList.add('active');
+    if (tab === 'available') loadAvailableDeliveries();
+    if (tab === 'active') loadActiveDelivery();
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  async function fetchUserProfile(userId) {
+    try {
+      return await apiCall('GET', `${API.USER}/users/${encodeURIComponent(userId)}`);
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadAvailableDeliveries() {
+    try {
+      const data = await apiCall('GET', `${API.DELIVERY}/deliveries?available=true`);
+      const deliveries = Array.isArray(data) ? data : (data.deliveries || []);
+      const list = document.getElementById('delivery-list');
+
+      if (deliveries.length === 0) {
+        list.innerHTML = '<div class="empty-state"><div class="empty-icon">&#9989;</div>No pending deliveries right now.</div>';
+        return;
+      }
+
+      const enriched = await Promise.all(deliveries.map(async (d) => {
+        const donation = await apiCall('GET', `${API.DONATION}/donations/${encodeURIComponent(d.donation_id)}`).catch(() => null);
+        const donorProfile = donation?.donor_id ? await fetchUserProfile(donation.donor_id) : null;
+        const ngoProfile = d.ngo_id ? await fetchUserProfile(d.ngo_id) : null;
+        return {
+          ...d,
+          donorName: donorProfile?.name || donorProfile?.email || 'Unknown Donor',
+          donorLat: donorProfile?.latitude ?? d.pickup_lat,
+          donorLng: donorProfile?.longitude ?? d.pickup_lng,
+          donorAddress: donation?.address || d.pickup_address || donorProfile?.address || 'Location not provided',
+          ngoName: ngoProfile?.name || ngoProfile?.email || 'Unknown NGO',
+          ngoLat: ngoProfile?.latitude ?? d.drop_lat,
+          ngoLng: ngoProfile?.longitude ?? d.drop_lng,
+          ngoAddress: d.drop_address || ngoProfile?.address || 'Location not provided',
+        };
+      }));
+
+      list.innerHTML = enriched.map(d => `
+        <div class="donation-card">
+          <div class="donation-info">
+            <h4>Food delivery <span class="badge badge-active" style="font-size:0.7rem;">${escapeHtml(d.donation_id)}</span></h4>
+            <p><strong>Pickup from:</strong> ${escapeHtml(d.donorName)} &bull; ${escapeHtml(d.donorAddress)}</p>
+            <p><strong>Drop-off to:</strong> ${escapeHtml(d.ngoName)} &bull; ${escapeHtml(d.ngoAddress)}</p>
+          </div>
+          <div class="donation-actions">
+            <button class="btn btn-orange btn-sm" onclick="acceptDelivery('${d.delivery_id}')">Accept Delivery</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      showAlert('Failed to load deliveries: ' + err.message, 'error');
+    }
+  }
+
+  async function acceptDelivery(deliveryId) {
+    try {
+      await apiCall('PUT', `${API.DELIVERY}/deliveries/${deliveryId}/assign`, {
+        volunteer_id: user.id,
+        volunteer_name: user.name || user.email,
+      });
+      showAlert('Delivery accepted!', 'success');
+      loadAvailableDeliveries();
+      switchTab('active');
+    } catch (err) {
+      showAlert('Failed to accept: ' + err.message, 'error');
+    }
+  }
+
+  async function loadActiveDelivery() {
+    try {
+      const data = await apiCall('GET', `${API.DELIVERY}/deliveries?volunteer_id=${encodeURIComponent(user.id)}`);
+      const delivery = (Array.isArray(data) ? data : (data.deliveries || []))
+        .find(item => item.status !== 'DELIVERED' && item.status !== 'CANCELLED');
+      const container = document.getElementById('active-delivery-content');
+
+      if (!delivery) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">&#128666;</div>No active delivery.</div>';
+        return;
+      }
+
+      const donation = await apiCall('GET', `${API.DONATION}/donations/${encodeURIComponent(delivery.donation_id)}`).catch(() => null);
+      const donorProfile = donation?.donor_id ? await fetchUserProfile(donation.donor_id) : null;
+      const ngoProfile = delivery.ngo_id ? await fetchUserProfile(delivery.ngo_id) : null;
+
+      const donorName = donorProfile?.name || donorProfile?.email || 'Unknown Donor';
+      const donorLat = donorProfile?.latitude ?? delivery.pickup_lat;
+      const donorLng = donorProfile?.longitude ?? delivery.pickup_lng;
+      const donorAddress = donation?.address || delivery.pickup_address || donorProfile?.address || 'Location not provided';
+      const ngoName = ngoProfile?.name || ngoProfile?.email || 'Unknown NGO';
+      const ngoLat = ngoProfile?.latitude ?? delivery.drop_lat;
+      const ngoLng = ngoProfile?.longitude ?? delivery.drop_lng;
+      const ngoAddress = delivery.drop_address || ngoProfile?.address || 'Location not provided';
+
+      const statusOrder = ['ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED'];
+      const curIdx = statusOrder.indexOf(delivery.status);
+
+      container.innerHTML = `
+        <div class="active-delivery-card">
+          <div class="flex-between">
+            <h3>Delivery #${escapeHtml(delivery.delivery_id)}</h3>
+            ${statusBadge(delivery.status)}
+          </div>
+          <div class="delivery-progress">
+            ${statusOrder.map((s, i) => `
+              <span class="step ${i < curIdx ? 'done' : ''} ${i === curIdx ? 'current' : ''}">${s.replace('_', ' ')}</span>
+            `).join('<span style="color:var(--gray-300);">&#8594;</span>')}
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin:1rem 0;">
+            <div>
+              <strong style="color:var(--green);">Pickup from</strong>
+              <p class="loc-info"><strong>${escapeHtml(donorName)}</strong></p>
+              <p class="loc-info">${escapeHtml(donorAddress)}</p>
+            </div>
+            <div>
+              <strong style="color:var(--orange);">Drop-off to</strong>
+              <p class="loc-info"><strong>${escapeHtml(ngoName)}</strong></p>
+              <p class="loc-info">${escapeHtml(ngoAddress)}</p>
+            </div>
+          </div>
+          <div id="delivery-map"></div>
+          <div class="delivery-actions mt-1" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+            ${delivery.status === 'ASSIGNED' ? `<button class="btn btn-primary btn-sm" onclick="updateDeliveryStatus('${delivery.delivery_id}','PICKED_UP')">Mark Picked Up</button>` : ''}
+            ${delivery.status === 'PICKED_UP' ? `<button class="btn btn-orange btn-sm" onclick="updateDeliveryStatus('${delivery.delivery_id}','IN_TRANSIT')">Start Transit</button>` : ''}
+            ${delivery.status === 'IN_TRANSIT' ? `<button class="btn btn-primary btn-sm" style="background:#198754;" onclick="updateDeliveryStatus('${delivery.delivery_id}','DELIVERED')">Mark Delivered</button>` : ''}
+          </div>
+        </div>`;
+
+      initMap(delivery, donorName, donorLat, donorLng, ngoName, ngoLat, ngoLng);
+      connectDeliveryWs(delivery.delivery_id);
+    } catch (err) {
+      showAlert('Failed to load active delivery: ' + err.message, 'error');
+    }
+  }
+
+  function initMap(delivery, donorName, donorLat, donorLng, ngoName, ngoLat, ngoLng) {
+    const mapEl = document.getElementById('delivery-map');
+    if (!mapEl) return;
+    if (!window.L) {
+      mapEl.innerHTML = '<p class="loc-info" style="padding:1rem;">Map is unavailable, but delivery updates still work.</p>';
+      return;
+    }
+
+    const pLat = donorLat || 28.6139;
+    const pLng = donorLng || 77.2090;
+    const dLat = ngoLat || 28.6200;
+    const dLng = ngoLng || 77.2150;
+
+    if (map) { map.remove(); map = null; }
+    map = L.map('delivery-map').setView([pLat, pLng], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    pickupMarker = L.marker([pLat, pLng]).addTo(map).bindPopup('Pickup: ' + (donorName || 'Donor')).openPopup();
+    dropMarker = L.marker([dLat, dLng]).addTo(map).bindPopup('Drop-off: ' + (ngoName || 'NGO'));
+    routeLine = L.polyline([[pLat, pLng], [dLat, dLng]], { color: '#e76f51', weight: 3, dashArray: '8 8' }).addTo(map);
+    map.fitBounds(routeLine.getBounds(), { padding: [40, 40] });
+  }
+
+  function connectDeliveryWs(deliveryId) {
+    if (wsConn) wsConn.close();
+    wsConn = connectWebSocket(
+      `ws://localhost:8005/ws/delivery/${deliveryId}`,
+      (data) => {
+        if (data.status) loadActiveDelivery();
+      },
+    );
+  }
+
+  async function updateDeliveryStatus(deliveryId, status) {
+    try {
+      await apiCall('PUT', `${API.DELIVERY}/deliveries/${deliveryId}/status`, { status });
+      showAlert(`Status updated to ${status}`, 'success');
+      loadActiveDelivery();
+    } catch (err) {
+      showAlert('Failed to update: ' + err.message, 'error');
+    }
+  }
+
+  loadAvailableDeliveries();
+</script>
+</body>
+</html>

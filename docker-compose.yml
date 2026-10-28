@@ -1,0 +1,255 @@
+# ============================================================
+# Distributed Food Waste Redistribution System
+# Docker Compose - 5 Microservices + Frontend + DB + RabbitMQ
+# ============================================================
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: fwr-postgres
+    environment:
+      POSTGRES_DB: food_waste
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ../database/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d food_waste"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fwr-network
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: fwr-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - fwr-network
+
+  user-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-user-service
+    environment:
+      SERVICE_MODULE: services.user_service.main
+      SERVICE_PORT: "8001"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+    ports:
+      - "8001:8001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  donation-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-donation-service
+    environment:
+      SERVICE_MODULE: services.donation_service.main
+      SERVICE_PORT: "8002"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  matching-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-matching-service
+    environment:
+      SERVICE_MODULE: services.matching_service.main
+      SERVICE_PORT: "8003"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  inventory-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-inventory-service
+    environment:
+      SERVICE_MODULE: services.inventory_service.main
+      SERVICE_PORT: "8004"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+    ports:
+      - "8004:8004"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  delivery-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-delivery-service
+    environment:
+      SERVICE_MODULE: services.delivery_service.main
+      SERVICE_PORT: "8005"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+    ports:
+      - "8005:8005"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  file-service:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-file-service
+    environment:
+      SERVICE_MODULE: services.file_service.main
+      SERVICE_PORT: "8006"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+      DATANODE_URLS: http://datanode-1:8091,http://datanode-2:8092,http://datanode-3:8093
+      CHUNK_SIZE: "512"
+      REPLICATION_FACTOR: "2"
+    ports:
+      - "8006:8006"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      datanode-1:
+        condition: service_started
+      datanode-2:
+        condition: service_started
+      datanode-3:
+        condition: service_started
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  datanode-1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-datanode-1
+    environment:
+      SERVICE_MODULE: services.file_service.datanode
+      SERVICE_PORT: "8091"
+      NODE_ID: datanode-1
+    ports:
+      - "8091:8091"
+    volumes:
+      - chunk_data_1:/data/chunks
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  datanode-2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-datanode-2
+    environment:
+      SERVICE_MODULE: services.file_service.datanode
+      SERVICE_PORT: "8092"
+      NODE_ID: datanode-2
+    ports:
+      - "8092:8092"
+    volumes:
+      - chunk_data_2:/data/chunks
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  datanode-3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-datanode-3
+    environment:
+      SERVICE_MODULE: services.file_service.datanode
+      SERVICE_PORT: "8093"
+      NODE_ID: datanode-3
+    ports:
+      - "8093:8093"
+    volumes:
+      - chunk_data_3:/data/chunks
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: fwr-frontend
+    environment:
+      SERVICE_MODULE: services.frontend_server
+      SERVICE_PORT: "3000"
+      DATABASE_URL: postgresql://postgres:postgres123@postgres:5432/food_waste
+    ports:
+      - "3000:3000"
+    depends_on:
+      - user-service
+      - donation-service
+      - matching-service
+      - inventory-service
+      - delivery-service
+    networks:
+      - fwr-network
+    restart: unless-stopped
+
+networks:
+  fwr-network:
+    driver: bridge
+    name: fwr-network
+
+volumes:
+  postgres_data:
+    name: fwr-postgres-data
+  chunk_data_1:
+    name: fwr-chunk-data-1
+  chunk_data_2:
+    name: fwr-chunk-data-2
+  chunk_data_3:
+    name: fwr-chunk-data-3

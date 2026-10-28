@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel - FoodRedist</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
+  <style>
+    .algo-section { margin-bottom: 2rem; }
+    .algo-section h3 { margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; font-size: 1.05rem; color: var(--green-dark); }
+    .server-node { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border-radius: var(--radius-sm); background: var(--gray-50); border: 1px solid var(--gray-200); font-size: 0.82rem; margin: 0.2rem; }
+    .server-node .node-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .server-node .node-dot.up { background: #198754; }
+    .server-node .node-dot.down { background: #dc3545; }
+    .server-node.coordinator { border-color: var(--orange); background: var(--orange-pale); font-weight: 700; }
+    .cycle-alert { background: #fee2e2; border: 1px solid #fca5a5; border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-top: 0.5rem; font-size: 0.88rem; color: #991b1b; }
+    .wf-graph { font-family: 'Consolas', monospace; font-size: 0.82rem; }
+    .wf-edge { color: var(--orange); font-weight: 700; }
+    .refresh-indicator { font-size: 0.75rem; color: var(--gray-500); display: flex; align-items: center; gap: 0.3rem; }
+    .refresh-indicator .spin { animation: spin 1s linear infinite; display: inline-block; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">&#127860; <span>FoodRedist</span></div>
+  <nav>
+    <span class="user-info" id="user-display">Admin</span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+  </nav>
+</header>
+
+<div class="dashboard">
+  <div class="flex-between">
+    <h1 class="dashboard-title">&#128736; Admin Panel</h1>
+    <div class="refresh-indicator">
+      <span class="spin" id="refresh-spinner" style="display:none;">&#8635;</span>
+      <span id="last-refresh">-</span>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('services',this)">Services</button>
+    <button class="tab-btn" onclick="switchTab('donations',this)">Donations</button>
+    <button class="tab-btn" onclick="switchTab('algorithms',this)">Algorithms</button>
+    <button class="tab-btn" onclick="switchTab('files',this)">File Storage</button>
+  </div>
+
+  <!-- ======================== SERVICES TAB ======================== -->
+  <div id="tab-services" class="tab-panel active">
+    <div class="admin-stats" id="service-stats"></div>
+    <div class="card mb-1">
+      <div class="card-header">&#128421; Microservice Status</div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th>Service</th><th>Status</th><th>Port</th><th>Action</th></tr>
+          </thead>
+          <tbody id="services-body">
+            <tr><td colspan="4"><span class="spinner"></span> Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header">&#127942; Bully Algorithm </div>
+      <div id="coordinator-display" style="padding:1rem;">
+        <span class="spinner"></span> Loading...
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== DONATIONS TAB ======================== -->
+  <div id="tab-donations" class="tab-panel">
+    <div class="flex-between mb-1">
+      <h3 class="section-heading" style="margin:0;">&#128203; All Donations</h3>
+      <button class="btn btn-sm btn-outline" onclick="loadAllDonations()">Refresh</button>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>Food</th><th>Type</th><th>Qty</th><th>Donor</th><th>NGO</th><th>Status</th><th>Created</th></tr>
+        </thead>
+        <tbody id="all-donations-body">
+          <tr><td colspan="8"><span class="spinner"></span> Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ======================== ALGORITHMS TAB ======================== -->
+  <div id="tab-algorithms" class="tab-panel">
+    <div class="card-grid" style="grid-template-columns:1fr 1fr;">
+      <div class="card algo-section">
+        <div class="card-header">&#128338; Lamport Clock Events</div>
+        <p class="text-sm text-muted mb-1">Logical timestamps for causal ordering</p>
+        <div class="algo-log" id="lamport-log">Loading...</div>
+      </div>
+      <div class="card algo-section">
+        <div class="card-header">&#128200; Vector Clock Events</div>
+        <p class="text-sm text-muted mb-1">Vector timestamps [D, M, I, V]</p>
+        <div class="algo-log" id="vector-log">Loading...</div>
+      </div>
+      <div class="card algo-section">
+        <div class="card-header">&#127942; Bully Election</div>
+        <p class="text-sm text-muted mb-1">Coordinator election status</p>
+        <div id="bully-display">
+          <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem;" id="bully-nodes"></div>
+          <div id="bully-log" class="algo-log">Loading...</div>
+        </div>
+      </div>
+      <div class="card algo-section">
+        <div class="card-header">&#9888; Deadlock Detection</div>
+        <p class="text-sm text-muted mb-1">Wait-for graph analysis &amp; cycle detection (three-colour DFS)</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.75rem;">
+          <button class="btn btn-orange mb-1" onclick="simulateDeadlock()" id="deadlock-sim-btn">Simulate Deadlock</button>
+          <button class="btn btn-primary mb-1" onclick="runDeadlockDetection()" id="deadlock-btn">Run Detection</button>
+        </div>
+        <div id="deadlock-result">
+          <p class="text-muted text-sm">Click "Run Detection" to analyze the wait-for graph. Click "Simulate Deadlock" after accepting two donations with different NGOs.</p>
+        </div>
+        <div id="deadlock-cycle" style="display:none;"></div>
+        <div id="deadlock-resolution" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== FILE STORAGE TAB (Distributed File System) ======================== -->
+  <div id="tab-files" class="tab-panel">
+    <div class="card mb-1">
+      <div class="card-header">&#128193; Distributed File System - DataNodes</div>
+      <div id="dfs-nodes" class="flex-between mb-1"><span class="spinner"></span> Loading nodes...</div>
+    </div>
+    <div class="card mb-1">
+      <div class="card-header">&#128228; Upload File (NameNode)</div>
+      <form id="dfs-upload-form" class="flex-between" style="gap:0.75rem;flex-wrap:wrap;">
+        <input type="file" id="dfs-file-input" class="form-control" style="flex:1;min-width:220px;" required>
+        <input type="text" id="dfs-file-desc" class="form-control" style="flex:1;min-width:180px;" placeholder="Description (optional)">
+        <button type="submit" class="btn btn-primary" id="dfs-upload-btn">Upload &amp; Replicate</button>
+      </form>
+    </div>
+    <div class="card">
+      <div class="card-header">&#128194; Stored Files</div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>File</th>
+              <th>Size</th>
+              <th>Chunks</th>
+              <th>Replicas</th>
+              <th>Uploaded</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="dfs-files-body">
+            <tr><td colspan="6" class="empty-state">Loading files...</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="dfs-chunk-map" style="margin-top:0.75rem;"></div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js?v=2"></script>
+<script>
+  const user = requireRole('admin');
+  if (!user) throw new Error('Unauthorized');
+  document.getElementById('user-display').textContent = `${user.name || 'Admin'}`;
+
+  let refreshTimer = null;
+
+  function switchTab(tab, btn) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + tab).classList.add('active');
+    if (btn) btn.classList.add('active');
+    loadTabData(tab);
+  }
+
+  function loadTabData(tab) {
+    switch(tab) {
+      case 'services': loadServices(); break;
+      case 'donations': loadAllDonations(); break;
+      case 'algorithms': loadAlgorithms(); break;
+      case 'files': loadDfsNodes(); loadDfsFiles(); break;
+    }
+  }
+
+  async function loadServices() {
+    try {
+      const data = await apiCall('GET', API.ALGORITHM + '/services');
+      const services = Array.isArray(data) ? data : (data.services || []);
+
+      let upCount = services.filter(s => s.status === 'UP').length;
+      let downCount = services.filter(s => s.status !== 'UP').length;
+      document.getElementById('service-stats').innerHTML = `
+        <div class="stat-card"><div class="stat-value">${services.length}</div><div class="stat-label">Total Services</div></div>
+        <div class="stat-card"><div class="stat-value" style="color:#198754;">${upCount}</div><div class="stat-label">Healthy</div></div>
+        <div class="stat-card orange"><div class="stat-value" style="color:#dc3545;">${downCount}</div><div class="stat-label">Down</div></div>
+        <div class="stat-card blue"><div class="stat-value">${services.filter(s => s.is_coordinator).length}</div><div class="stat-label">Coordinator</div></div>`;
+
+      const body = document.getElementById('services-body');
+      if (services.length === 0) {
+        body.innerHTML = '<tr><td colspan="4" class="empty-state">No services registered</td></tr>';
+        return;
+      }
+      body.innerHTML = services.map(s => `
+        <tr>
+          <td><strong>${escapeHtml(s.service_id || s.name || s.id)}</strong></td>
+          <td>${statusBadge(s.status || 'UP')}</td>
+          <td>${s.port || '-'}</td>
+          <td>
+            ${s.status !== 'DOWN' ?
+              `<button class="btn btn-danger btn-sm" onclick="simulateFailure('${escapeHtml(s.service_id || s.name || s.id)}')">Simulate Failure</button>` :
+              `<button class="btn btn-primary btn-sm" onclick="recoverService('${escapeHtml(s.service_id || s.name || s.id)}')">Recover</button>`
+            }
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      document.getElementById('services-body').innerHTML = `<tr><td colspan="4" class="text-muted">Could not load services: ${escapeHtml(err.message)}</td></tr>`;
+    }
+
+    try {
+      const data = await apiCall('GET', API.ALGORITHM + '/bully/status');
+      const coordinator = data.coordinator || data.current_coordinator || data;
+      const nodes = data.nodes || data.alive_nodes || [];
+      const display = document.getElementById('coordinator-display');
+      display.innerHTML = `
+        <div style="margin-bottom:0.75rem;">
+          <strong>Active Coordinator:</strong>
+          <span style="font-size:1.1rem;color:var(--orange);font-weight:800;margin-left:0.5rem;">${escapeHtml(coordinator.service_id || coordinator.id || coordinator || 'None')}</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.3rem;">
+          ${nodes.map(n => {
+            const name = typeof n === 'string' ? n : (n.service_id || n.id || n.name);
+            const isCoord = (name === (coordinator.service_id || coordinator.id || coordinator));
+            return `<div class="server-node ${isCoord ? 'coordinator' : ''}">
+              <span class="node-dot up"></span> ${escapeHtml(name)} ${isCoord ? '&#127942;' : ''}
+            </div>`;
+          }).join('')}
+        </div>`;
+    } catch (err) {
+      document.getElementById('coordinator-display').innerHTML = `<p class="text-muted">Could not load coordinator info: ${escapeHtml(err.message)}</p>`;
+    }
+  }
+
+  async function simulateFailure(serviceId) {
+    try {
+      await apiCall('POST', API.ALGORITHM + '/services/' + encodeURIComponent(serviceId) + '/failure');
+      showAlert(`${serviceId} marked as DOWN`, 'warning');
+      loadServices();
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
+    }
+  }
+
+  async function recoverService(serviceId) {
+    try {
+      await apiCall('POST', API.ALGORITHM + '/services/' + encodeURIComponent(serviceId) + '/recover');
+      showAlert(`${serviceId} recovered`, 'success');
+      loadServices();
+    } catch (err) {
+      showAlert('Failed: ' + err.message, 'error');
+    }
+  }
+
+  async function loadAllDonations() {
+    try {
+      const data = await apiCall('GET', API.DONATION + '/donations?skip=0&limit=50');
+      const donations = Array.isArray(data) ? data : (data.donations || []);
+      const body = document.getElementById('all-donations-body');
+
+      if (donations.length === 0) {
+        body.innerHTML = '<tr><td colspan="8" class="empty-state">No donations in the system.</td></tr>';
+        return;
+      }
+      body.innerHTML = donations.map(d => `
+        <tr>
+          <td><code style="font-size:0.75rem;">${escapeHtml(d.donation_id || String(d.id || '').slice(0, 8))}</code></td>
+          <td><strong>${escapeHtml(d.food_name)}</strong></td>
+          <td>${escapeHtml(d.food_type)}</td>
+          <td>${d.quantity} ${d.unit || ''}</td>
+          <td>${escapeHtml(d.donor_name || d.donor_id || d.user_id || '-')}</td>
+          <td>${escapeHtml(d.ngo_name || d.ngo_id || '-')}</td>
+          <td>${statusBadge(d.status)}</td>
+          <td class="text-sm">${formatShortDate(d.created_at)}</td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      document.getElementById('all-donations-body').innerHTML = `<tr><td colspan="8" class="text-muted">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  async function loadAlgorithms() {
+    loadLamportEvents();
+    loadVectorEvents();
+    loadBullyStatus();
+  }
+
+  async function loadLamportEvents() {
+    try {
+      const data = await apiCall('GET', API.ALGORITHM + '/clocks/lamport');
+      const events = Array.isArray(data) ? data : (data.events || []);
+      const log = document.getElementById('lamport-log');
+
+      if (events.length === 0) {
+        log.innerHTML = '<div class="log-entry" style="color:#6c757d;">No events recorded yet.</div>';
+        return;
+      }
+      log.innerHTML = events.slice(-50).reverse().map(e => `
+        <div class="log-entry">[${e.timestamp || 0}] <span style="color:#f4a261;">${escapeHtml(e.service_id || e.service || '?')}</span> &rarr; <span style="color:#a8e6a3;">${escapeHtml(e.event_type || e.type || '?')}</span> ${e.donation_id ? '(' + escapeHtml(String(e.donation_id).slice(0, 6)) + ')' : ''}</div>
+      `).join('');
+    } catch (err) {
+      document.getElementById('lamport-log').innerHTML = `<div class="log-entry" style="color:#f87171;">Error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function loadVectorEvents() {
+    try {
+      const data = await apiCall('GET', API.ALGORITHM + '/clocks/vector');
+      const events = Array.isArray(data) ? data : (data.events || []);
+      const log = document.getElementById('vector-log');
+
+      if (events.length === 0) {
+        log.innerHTML = '<div class="log-entry" style="color:#6c757d;">No vector clock events yet.</div>';
+        return;
+      }
+      log.innerHTML = events.slice(-50).reverse().map(e => {
+        const vec = e.vector_clock || e.vector || {};
+        const vecStr = Array.isArray(vec) ? `[${vec.join(',')}]` :
+          `[D:${vec['SVC-DONATION'] ?? 0} M:${vec['SVC-MATCHING'] ?? 0} I:${vec['SVC-INVENTORY'] ?? 0} V:${vec['SVC-DELIVERY'] ?? 0}]`;
+        const rel = e.relationship || '';
+        const relBadge = rel === 'causal' ? '<span style="color:#f4a261;">[causal]</span>' :
+          rel === 'concurrent' ? '<span style="color:#60a5fa;">[concurrent]</span>' : '';
+        return `<div class="log-entry">${vecStr} <span style="color:#f4a261;">${escapeHtml(e.service_id || e.service || '?')}</span> &rarr; <span style="color:#a8e6a3;">${escapeHtml(e.event_type || e.type || '?')}</span> ${relBadge}</div>`;
+      }).join('');
+    } catch (err) {
+      document.getElementById('vector-log').innerHTML = `<div class="log-entry" style="color:#f87171;">Error: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+
+  async function loadBullyStatus() {
+    try {
+      const data = await apiCall('GET', API.ALGORITHM + '/bully/status');
+      const nodes = data.nodes || data.alive_nodes || [];
+      const coordinator = data.coordinator || data.current_coordinator || 'None';
+      const electionLog = data.election_log || data.log || [];
+
+      const nodesContainer = document.getElementById('bully-nodes');
+      nodesContainer.innerHTML = nodes.map(n => {
+        const name = typeof n === 'string' ? n : (n.service_id || n.id || n.name || 'unknown');
+        const alive = typeof n === 'object' ? (n.alive !== false) : true;
+        const isCoord = (name === coordinator || (typeof coordinator === 'object' && name === coordinator.service_id));
+        return `<div class="server-node ${isCoord ? 'coordinator' : ''}">
+          <span class="node-dot ${alive ? 'up' : 'down'}"></span> ${escapeHtml(name)} ${isCoord ? '&#127942;' : ''}
+        </div>`;
+      }).join('');
+
+      const logEl = document.getElementById('bully-log');
+      if (electionLog.length === 0) {
+        logEl.innerHTML = '<div class="log-entry" style="color:#6c757d;">No elections triggered.</div>';
+      } else {
+        logEl.innerHTML = electionLog.slice(-30).reverse().map(e => `
+          <div class="log-entry">[${formatShortDate(e.timestamp || e.time)}] ${escapeHtml(e.message || e.event || JSON.stringify(e))}</div>
+        `).join('');
+      }
+    } catch (err) {
+      document.getElementById('bully-nodes').innerHTML = `<span class="text-muted">${escapeHtml(err.message)}</span>`;
+    }
+  }
+
+  async function simulateDeadlock() {
+    const btn = document.getElementById('deadlock-sim-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Simulating...';
+    try {
+      const data = await apiCall('POST', API.ALGORITHM + '/deadlock/simulate');
+      const result = document.getElementById('deadlock-result');
+      result.innerHTML = `
+        <div class="algo-log" style="max-height:200px;">
+          <strong>Simulated deadlock created:</strong><br>
+          ${escapeHtml(data.scenario || data.message || 'Circular wait created')}<br>
+          <span class="wf-edge">${escapeHtml(data.message || '')}</span>
+        </div>`;
+      showAlert('Deadlock scenario simulated! Click Run Detection.', 'warning');
+    } catch (err) {
+      showAlert('Simulate failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Simulate Deadlock';
+    }
+  }
+
+  async function runDeadlockDetection() {
+    const btn = document.getElementById('deadlock-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Analyzing...';
+    try {
+      const data = await apiCall('POST', API.ALGORITHM + '/deadlock/detect');
+      const result = document.getElementById('deadlock-result');
+      const cycleEl = document.getElementById('deadlock-cycle');
+      const resEl = document.getElementById('deadlock-resolution');
+
+      const graph = data.wait_for_graph || data.graph || {};
+      let graphText = '<strong>Wait-For Graph:</strong>\n';
+      if (typeof graph === 'object' && Object.keys(graph).length > 0) {
+        Object.entries(graph).forEach(([node, waiting]) => {
+          const targets = Array.isArray(waiting) ? waiting : [waiting];
+          targets.forEach(t => {
+            graphText += `  ${escapeHtml(node)} <span class="wf-edge">&rarr;</span> ${escapeHtml(typeof t === 'string' ? t : JSON.stringify(t))}\n`;
+          });
+        });
+      } else {
+        graphText += '  (empty graph - no waiting relationships)\n';
+      }
+      result.innerHTML = `<div class="algo-log" style="max-height:200px;">${graphText}</div>`;
+
+      const hasDeadlock = data.deadlock_detected || data.has_cycle || false;
+      const cycles = data.cycles || data.deadlock_cycles || [];
+
+      if (hasDeadlock && cycles.length > 0) {
+        cycleEl.style.display = 'block';
+        cycleEl.innerHTML = `
+          <div class="cycle-alert">
+            <strong>&#9888; Deadlock Detected!</strong><br>
+            ${cycles.map(c => `<span>Cycle: ${Array.isArray(c) ? c.map(n => escapeHtml(n)).join(' &rarr; ') : escapeHtml(JSON.stringify(c))}</span>`).join('<br>')}
+          </div>`;
+
+        try {
+          const resData = await apiCall('POST', API.ALGORITHM + '/deadlock/resolve');
+          resEl.style.display = 'block';
+          resEl.innerHTML = `<div style="background:#d1fae5;border-radius:var(--radius-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.85rem;color:#065f46;">
+            <strong>&10003; Resolution:</strong> ${escapeHtml(resData.message || resData.action || 'Deadlock resolved by aborting oldest transaction.')}
+          </div>`;
+        } catch (resErr) {
+          resEl.style.display = 'block';
+          resEl.innerHTML = `<div style="background:#fee2e2;border-radius:var(--radius-sm);padding:0.75rem;margin-top:0.5rem;font-size:0.85rem;color:#991b1b;">
+            Resolution failed: ${escapeHtml(resErr.message)}
+          </div>`;
+        }
+      } else {
+        cycleEl.style.display = 'block';
+        cycleEl.innerHTML = `<div style="background:#d1fae5;border-radius:var(--radius-sm);padding:0.75rem;font-size:0.85rem;color:#065f46;">
+          <strong>&10003; No deadlock detected.</strong> The wait-for graph is acyclic.
+        </div>`;
+        resEl.style.display = 'none';
+      }
+    } catch (err) {
+      showAlert('Deadlock detection failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Run Detection';
+    }
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  async function loadDfsNodes() {
+    try {
+      const data = await apiCall('GET', API.FILE + '/dfs/nodes');
+      const nodes = data.nodes || [];
+      const rep = data.replication_factor;
+      const csize = data.chunk_size;
+      document.getElementById('dfs-nodes').innerHTML = `
+        <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+          ${nodes.map(n => `
+            <div class="server-node ${n.status === 'UP' ? 'coordinator' : ''}">
+              <span class="node-dot ${n.status === 'UP' ? 'up' : 'down'}"></span>
+              ${escapeHtml(n.node_id)} &bull; ${n.status} &bull; ${n.chunks_stored} chunks
+              ${n.status === 'UP'
+                ? `<button class="btn btn-danger btn-sm" style="margin-left:0.4rem;" onclick="setDfsNode('${escapeHtml(n.node_id)}','down')">Fail</button>`
+                : `<button class="btn btn-sm" style="margin-left:0.4rem;background:#198754;color:#fff;" onclick="setDfsNode('${escapeHtml(n.node_id)}','up')">Recover</button>`}
+            </div>
+          `).join('')}
+        </div>`;
+    } catch (err) {
+      document.getElementById('dfs-nodes').innerHTML = `<span class="text-muted">${escapeHtml(err.message)}</span>`;
+    }
+  }
+
+  async function setDfsNode(nodeId, state) {
+    try {
+      await apiCall('POST', API.FILE + `/dfs/nodes/${encodeURIComponent(nodeId)}/${state}`);
+      loadDfsNodes();
+    } catch (err) {
+      showAlert('Node update failed: ' + err.message, 'error');
+    }
+  }
+
+  async function loadDfsFiles() {
+    try {
+      const data = await apiCall('GET', API.FILE + '/dfs/files');
+      const files = data.files || [];
+      const body = document.getElementById('dfs-files-body');
+      if (files.length === 0) {
+        body.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-icon">&#128193;</div>No files stored yet. Upload one to see chunking &amp; replication.</td></tr>';
+        return;
+      }
+      body.innerHTML = files.map(f => `
+        <tr>
+          <td><strong>${escapeHtml(f.filename)}</strong>${f.description ? `<br><small class="text-muted">${escapeHtml(f.description)}</small>` : ''}
+              <br><small class="text-muted">${escapeHtml(f.file_id)}</small></td>
+          <td>${formatBytes(f.size_bytes)}</td>
+          <td>${f.num_chunks}</td>
+          <td>${f.replication_factor}</td>
+          <td>${formatShortDate(f.created_at)}</td>
+          <td>
+            <button class="btn btn-primary btn-sm" onclick="downloadDfsFile('${escapeHtml(f.file_id)}')">Download</button>
+            <button class="btn btn-outline btn-sm" onclick="showDfsChunks('${escapeHtml(f.file_id)}')">Chunk Map</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteDfsFile('${escapeHtml(f.file_id)}', '${escapeHtml(f.filename)}')">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      document.getElementById('dfs-files-body').innerHTML = `<tr><td colspan="6" class="empty-state">Error: ${escapeHtml(err.message)}</td></tr>`;
+    }
+  }
+
+  function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  }
+
+  async function downloadDfsFile(fileId) {
+    try {
+      const res = await fetch(`${API.FILE}/dfs/files/${encodeURIComponent(fileId)}/download`);
+      if (!res.ok) throw new Error('Download failed: ' + res.status);
+      const blob = await res.blob();
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const fileMatch = disposition.match(/filename="?([^"]+)"?/);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fileMatch ? fileMatch[1] : fileId;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(a.href);
+      showAlert('File downloaded - reassembled from chunks!', 'success');
+    } catch (err) {
+      showAlert(err.message, 'error');
+    }
+  }
+
+  async function deleteDfsFile(fileId, filename) {
+    if (!confirm(`Delete "${filename}" from all DataNodes?`)) return;
+    try {
+      const data = await apiCall('DELETE', API.FILE + `/dfs/files/${encodeURIComponent(fileId)}`);
+      showAlert(`Deleted ${data.file_id} (${data.chunks_removed} chunk(s) removed)`, 'success');
+      document.getElementById('dfs-chunk-map').innerHTML = '';
+      await loadDfsFiles();
+      await loadDfsNodes();
+    } catch (err) {
+      showAlert('Delete failed: ' + err.message, 'error');
+    }
+  }
+
+  async function showDfsChunks(fileId) {
+    try {
+      const data = await apiCall('GET', API.FILE + `/dfs/files/${encodeURIComponent(fileId)}/chunks`);
+      const el = document.getElementById('dfs-chunk-map');
+      const alive = await apiCall('GET', API.FILE + '/dfs/nodes');
+      const downSet = new Set((alive.nodes || []).filter(n => n.status === 'DOWN').map(n => n.node_id));
+      el.innerHTML = `<div class="algo-log" style="max-height:200px;">
+        <strong>Chunk map for ${escapeHtml(data.filename)}</strong><br>
+        ${data.chunks.map(c => {
+          const nodes = (c.nodes || []).map(u => {
+            const id = u.split('//')[1].split(':')[0];
+            const isDown = downSet.has(id);
+            return `<span style="color:${isDown ? '#dc3545' : '#198754'};">${escapeHtml(id)}${isDown ? ' (DOWN)' : ''}</span>`;
+          }).join(' &amp; ');
+          return `<div>${escapeHtml(c.chunk_id)} &rarr; ${nodes} (${formatBytes(c.size)})</div>`;
+        }).join('')}
+      </div>`;
+    } catch (err) {
+      showAlert(err.message, 'error');
+      document.getElementById('dfs-chunk-map').innerHTML = '';
+    }
+  }
+
+  document.getElementById('dfs-upload-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const input = document.getElementById('dfs-file-input');
+    const desc = document.getElementById('dfs-file-desc').value;
+    const btn = document.getElementById('dfs-upload-btn');
+    if (!input.files.length) return;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Chunking &amp; Replicating...';
+    try {
+      const fd = new FormData();
+      fd.append('file', input.files[0]);
+      if (desc) fd.append('description', desc);
+      const res = await fetch(`${API.FILE}/dfs/upload`, { method: 'POST', body: fd });
+      if (!res.ok) throw new Error((await res.json()).detail || 'Upload failed');
+      const data = await res.json();
+      input.value = '';
+      btn.innerHTML = 'Upload &amp; Replicate';
+      btn.disabled = false;
+      showAlert(`${escapeHtml(data.filename)} split into ${data.num_chunks} chunks across ${data.chunks[0].nodes.length} replicas.`, 'success');
+      loadDfsNodes();
+      loadDfsFiles();
+    } catch (err) {
+      btn.innerHTML = 'Upload &amp; Replicate';
+      btn.disabled = false;
+      showAlert(err.message, 'error');
+    }
+  });
+
+  function startAutoRefresh() {
+    refreshTimer = setInterval(() => {
+      const activeTab = document.querySelector('.tab-panel.active');
+      if (activeTab) {
+        const tabId = activeTab.id.replace('tab-', '');
+        document.getElementById('refresh-spinner').style.display = 'inline';
+        loadTabData(tabId);
+        setTimeout(() => {
+          document.getElementById('refresh-spinner').style.display = 'none';
+          document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+        }, 500);
+      }
+    }, 5000);
+  }
+
+  loadServices();
+  startAutoRefresh();
+  document.getElementById('last-refresh').textContent = 'Updated ' + new Date().toLocaleTimeString();
+</script>
+</body>
+</html>

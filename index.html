@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FoodRedist - Distributed Food Waste Redistribution</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .particles {
+      position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+    }
+    .particles span {
+      position: absolute; display: block; width: 8px; height: 8px;
+      background: rgba(255,255,255,0.08); border-radius: 50%;
+      animation: float 15s infinite linear;
+    }
+    @keyframes float {
+      0% { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateY(-10vh) rotate(720deg); opacity: 0; }
+    }
+    .how-it-works { padding: 4rem 2rem; background: var(--gray-50); }
+    .steps-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 1.5rem; max-width: 1000px; margin: 0 auto; }
+    .step-card { text-align: center; padding: 1.5rem; position: relative; }
+    .step-num { width: 40px; height: 40px; border-radius: 50%; background: var(--orange); color: var(--white); display: flex; align-items: center; justify-content: center; font-weight: 800; margin: 0 auto 0.75rem; }
+    .step-card h4 { color: var(--green-dark); margin-bottom: 0.4rem; }
+    .step-card p { font-size: 0.88rem; color: var(--gray-500); }
+    .cta-bar { background: linear-gradient(135deg, var(--orange), #d35c3f); padding: 3rem 2rem; text-align: center; color: var(--white); }
+    .cta-bar h2 { font-size: 1.8rem; margin-bottom: 1rem; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">&#127860; <span>FoodRedist</span></div>
+  <nav>
+    <a href="login.html" class="btn btn-ghost btn-sm">Login</a>
+    <a href="login.html#register" class="btn btn-orange btn-sm">Get Started</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div class="particles">
+    <span style="left:10%;width:6px;height:6px;animation-delay:0s;animation-duration:12s"></span>
+    <span style="left:25%;width:10px;height:10px;animation-delay:2s;animation-duration:18s"></span>
+    <span style="left:40%;width:5px;height:5px;animation-delay:4s;animation-duration:14s"></span>
+    <span style="left:60%;width:8px;height:8px;animation-delay:1s;animation-duration:16s"></span>
+    <span style="left:75%;width:7px;height:7px;animation-delay:3s;animation-duration:13s"></span>
+    <span style="left:90%;width:9px;height:9px;animation-delay:5s;animation-duration:17s"></span>
+  </div>
+  <h1>Distributed Food Waste<br><span>Redistribution System</span></h1>
+  <p>A microservices-powered platform that connects food donors with NGOs and volunteers, using distributed algorithms to ensure efficient, real-time food waste reduction.</p>
+  <div class="hero-cta">
+    <a href="login.html" class="btn btn-orange" style="padding:0.75rem 2rem;font-size:1rem;">Start Donating</a>
+    <a href="login.html#register" class="btn btn-outline" style="padding:0.75rem 2rem;font-size:1rem;color:#fff;border-color:rgba(255,255,255,0.4);">Join as NGO</a>
+  </div>
+</section>
+
+<section class="roles-section">
+  <h2 class="section-title">Choose Your Role</h2>
+  <p class="section-subtitle">Every participant plays a vital role in reducing food waste</p>
+  <div class="card-grid" style="max-width:1100px;margin:0 auto;">
+    <div class="role-card">
+      <div class="role-icon">&#127869;</div>
+      <h3>Donor</h3>
+      <p>List surplus food from restaurants, events, or households. Help redirect edible food before it goes to waste.</p>
+      <a href="login.html" class="btn btn-primary btn-sm">Login as Donor</a>
+    </div>
+    <div class="role-card">
+      <div class="role-icon">&#127760;</div>
+      <h3>NGO</h3>
+      <p>Browse available donations, reserve food matching your requirements, and coordinate distribution to those in need.</p>
+      <a href="login.html" class="btn btn-orange btn-sm">Login as NGO</a>
+    </div>
+    <div class="role-card">
+      <div class="role-icon">&#128694;</div>
+      <h3>Volunteer</h3>
+      <p>Pick up and deliver food donations. Track your route in real-time and earn recognition for your service.</p>
+      <a href="login.html" class="btn btn-primary btn-sm" style="background:var(--orange-light);">Login as Volunteer</a>
+    </div>
+    <div class="role-card">
+      <div class="role-icon">&#128736;</div>
+      <h3>Admin</h3>
+      <p>Monitor system health, track distributed algorithms, manage microservices, and ensure smooth operations.</p>
+      <a href="login.html" class="btn btn-sm" style="background:var(--gray-500);color:#fff;">Login as Admin</a>
+    </div>
+  </div>
+</section>
+
+<section class="how-it-works">
+  <h2 class="section-title">How It Works</h2>
+  <p class="section-subtitle">From surplus to serving in four simple steps</p>
+  <div class="steps-grid">
+    <div class="step-card">
+      <div class="step-num">1</div>
+      <h4>List Donation</h4>
+      <p>Donors add food details, quantity, expiry, and location with a single form.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">2</div>
+      <h4>Smart Matching</h4>
+      <p>Our distributed system matches donations to NGOs based on proximity, needs, and priority.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">3</div>
+      <h4>Reserve &amp; Pickup</h4>
+      <p>NGOs accept donations using mutual exclusion. Volunteers are assigned for pickup.</p>
+    </div>
+    <div class="step-card">
+      <div class="step-num">4</div>
+      <h4>Deliver &amp; Track</h4>
+      <p>Real-time delivery tracking with WebSocket updates until food reaches its destination.</p>
+    </div>
+  </div>
+</section>
+
+<section class="tech-section">
+  <h2 class="section-title">Built With Distributed Systems</h2>
+  <p class="section-subtitle">Leveraging cutting-edge technologies for reliability and scale</p>
+  <div class="tech-grid">
+    <div class="tech-item">
+      <div class="tech-icon">&#128279;</div>
+      <strong>gRPC</strong>
+      <span class="text-sm text-muted">Service-to-service communication</span>
+    </div>
+    <div class="tech-item">
+      <div class="tech-icon">&#128230;</div>
+      <strong>RabbitMQ</strong>
+      <span class="text-sm text-muted">Async message queuing</span>
+    </div>
+    <div class="tech-item">
+      <div class="tech-icon">&#9889;</div>
+      <strong>WebSocket</strong>
+      <span class="text-sm text-muted">Real-time event streaming</span>
+    </div>
+    <div class="tech-item">
+      <div class="tech-icon">&#128203;</div>
+      <strong>Docker</strong>
+      <span class="text-sm text-muted">Containerized deployment</span>
+    </div>
+    <div class="tech-item">
+      <div class="tech-icon">&#128736;</div>
+      <strong>Microservices</strong>
+      <span class="text-sm text-muted">Decomposed architecture</span>
+    </div>
+  </div>
+</section>
+
+<section class="cta-bar">
+  <h2>Ready to Make a Difference?</h2>
+  <p style="margin-bottom:1.5rem;opacity:0.9;">Join our platform and help reduce food waste in your community.</p>
+  <a href="login.html" class="btn btn-primary" style="padding:0.75rem 2.5rem;font-size:1.05rem;">Get Started Now</a>
+</section>
+
+<footer class="site-footer">
+  <p><strong>FoodRedist</strong> &mdash; Distributed Food Waste Redistribution System</p>
+  <p style="margin-top:0.3rem;">Built with gRPC, RabbitMQ, WebSocket, Docker, and Microservices &bull; &copy; 2026</p>
+</footer>
+
+</body>
+</html>

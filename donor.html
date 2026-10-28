@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Donor Dashboard - FoodRedist</title>
+  <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="logo">&#127860; <span>FoodRedist</span></div>
+  <nav>
+    <span class="user-info" id="user-display"></span>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Logout</button>
+  </nav>
+</header>
+
+<div class="dashboard">
+  <h1 class="dashboard-title">&#127869; Donor Dashboard</h1>
+
+  <div class="card-grid" style="grid-template-columns:1fr 1.5fr;align-items:start;">
+    <div class="card">
+      <div class="card-header">&#10133; Add Donation</div>
+      <form id="donation-form" onsubmit="handleAddDonation(event)">
+        <div class="form-group">
+          <label>Food Name</label>
+          <input type="text" class="form-control" id="food-name" required placeholder="e.g. Cooked Rice">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Food Type</label>
+            <select class="form-control" id="food-type" required>
+              <option value="Rice">Rice</option>
+              <option value="Bread">Bread</option>
+              <option value="Vegetables">Vegetables</option>
+              <option value="Fruits">Fruits</option>
+              <option value="Milk">Milk</option>
+              <option value="Other">Other</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Quantity</label>
+            <input type="number" class="form-control" id="food-qty" required min="0.1" step="0.1" placeholder="e.g. 10">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Unit</label>
+            <select class="form-control" id="food-unit" required>
+              <option value="kg">kg</option>
+              <option value="liters">liters</option>
+              <option value="portions">portions</option>
+              <option value="packets">packets</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Expiry Time</label>
+            <input type="datetime-local" class="form-control" id="food-expiry" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Pickup Location (Address)</label>
+          <input type="text" class="form-control" id="food-address" required placeholder="e.g. 124 Green Street, New York, NY">
+          <small class="text-muted" id="address-status">Enter the address where food will be picked up.</small>
+          <input type="hidden" id="food-lat">
+          <input type="hidden" id="food-lng">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;" id="donation-btn">Add Donation</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="card-header">&#128203; My Donations</div>
+      <div class="flex-between mb-1">
+        <span class="text-sm text-muted" id="donation-count">Loading...</span>
+        <button class="btn btn-sm btn-outline" onclick="loadDonations()">Refresh</button>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr>
+              <th>Food</th>
+              <th>Type</th>
+              <th>Qty</th>
+              <th>Expiry</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="donations-body">
+            <tr><td colspan="6" class="empty-state">Loading donations...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/app.js?v=2"></script>
+<script>
+  const user = requireRole('donor');
+  if (!user) throw new Error('Unauthorized');
+  document.getElementById('user-display').textContent = `${user.name || user.email} (Donor)`;
+
+  const NOW_PLUS_6H = new Date(Date.now() + 6 * 3600000);
+  document.getElementById('food-expiry').value = NOW_PLUS_6H.toISOString().slice(0, 16);
+
+  let pickupLat = (Number.isFinite(Number(user.latitude)) && Number(user.latitude)) ? Number(user.latitude) : 0;
+  let pickupLng = (Number.isFinite(Number(user.longitude)) && Number(user.longitude)) ? Number(user.longitude) : 0;
+  document.getElementById('food-lat').value = pickupLat;
+  document.getElementById('food-lng').value = pickupLng;
+
+  if (user.address) {
+    document.getElementById('food-address').value = user.address;
+    document.getElementById('address-status').textContent = 'Pickup address prefilled from your profile.';
+  }
+
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition((pos) => {
+      pickupLat = pos.coords.latitude;
+      pickupLng = pos.coords.longitude;
+      document.getElementById('food-lat').value = pickupLat;
+      document.getElementById('food-lng').value = pickupLng;
+      document.getElementById('address-status').textContent = 'Location detected for proximity matching.';
+    }, () => {
+      document.getElementById('address-status').textContent = (user.address ? 'Using your profile location.' : 'Location auto-detect unavailable.');
+    });
+  }
+
+  async function loadDonations() {
+    try {
+      const data = await apiCall('GET', `${API.DONATION}/donations?donor_id=${encodeURIComponent(user.id)}`);
+      const donations = Array.isArray(data) ? data : (data.donations || []);
+      const body = document.getElementById('donations-body');
+      document.getElementById('donation-count').textContent = `${donations.length} donation(s)`;
+
+      if (donations.length === 0) {
+        body.innerHTML = '<tr><td colspan="6" class="empty-state"><div class="empty-icon">&#127869;</div>No donations yet. Add your first donation!</td></tr>';
+        return;
+      }
+
+      body.innerHTML = donations.map(d => `
+        <tr>
+          <td><strong>${escapeHtml(d.food_name)}</strong></td>
+          <td>${escapeHtml(d.food_type)}</td>
+          <td>${d.quantity} ${d.unit || ''}</td>
+          <td>${formatShortDate(d.expiry_time)}</td>
+          <td>${statusBadge(d.status)}</td>
+          <td>
+            ${d.status === 'AVAILABLE' ? `<button class="btn btn-danger btn-sm" onclick="cancelDonation('${d.donation_id}')">Cancel</button>` : '-'}
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      showAlert('Failed to load donations: ' + err.message, 'error');
+    }
+  }
+
+  async function handleAddDonation(e) {
+    e.preventDefault();
+    const btn = document.getElementById('donation-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Adding...';
+    try {
+      await apiCall('POST', API.DONATION + '/donations', {
+        donor_id: user.id,
+        food_name: document.getElementById('food-name').value,
+        food_type: document.getElementById('food-type').value,
+        quantity: parseFloat(document.getElementById('food-qty').value),
+        unit: document.getElementById('food-unit').value,
+        expiry_time: new Date(document.getElementById('food-expiry').value).toISOString(),
+        latitude: pickupLat,
+        longitude: pickupLng,
+        address: document.getElementById('food-address').value,
+      });
+      showAlert('Donation added successfully!', 'success');
+      document.getElementById('donation-form').reset();
+      document.getElementById('food-expiry').value = new Date(Date.now() + 6 * 3600000).toISOString().slice(0, 16);
+      loadDonations();
+    } catch (err) {
+      showAlert('Failed to add donation: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = 'Add Donation';
+    }
+  }
+
+  async function cancelDonation(id) {
+    if (!confirm('Cancel this donation?')) return;
+    try {
+      await apiCall('PUT', `${API.DONATION}/donations/${encodeURIComponent(id)}`, { status: 'CANCELLED' });
+      showAlert('Donation cancelled', 'info');
+      loadDonations();
+    } catch (err) {
+      showAlert('Failed to cancel: ' + err.message, 'error');
+    }
+  }
+
+  function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  loadDonations();
+</script>
+</body>
+</html>
